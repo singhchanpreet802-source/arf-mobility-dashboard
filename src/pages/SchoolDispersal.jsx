@@ -1,10 +1,44 @@
 import { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
-import { subscribeSchools, addSchool } from '../lib/firestoreData';
+import { subscribeSchools, addSchool, updateSchool } from '../lib/firestoreData';
 import { optimizeSchedule } from '../lib/dispersal';
 import { generateDispersalSchedulePDF } from '../lib/pdf';
 import { Spinner, EmptyState } from '../components/Loading';
+
+// Bareilly city centre as default map view
+const BAREILLY_CENTER = [28.367, 79.416];
+
+// Custom school marker icon
+const schoolIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+const pickerIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+// Click handler component inside MapContainer
+function LocationPicker({ onPick }) {
+  useMapEvents({
+    click(e) {
+      onPick(e.latlng);
+    },
+  });
+  return null;
+}
 
 const initialForm = {
   name: '',
@@ -22,8 +56,14 @@ export default function SchoolDispersal() {
   const [schools, setSchools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(initialForm);
+  const [pickedLocation, setPickedLocation] = useState(null);
+  const [showMapPicker, setShowMapPicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // Inline edit state for dispersal time
+  const [editingId, setEditingId] = useState(null);
+  const [editingTime, setEditingTime] = useState('');
 
   useEffect(() => {
     const unsub = subscribeSchools((data) => {
@@ -46,10 +86,7 @@ export default function SchoolDispersal() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!form.name.trim()) {
-      setError('School name is required.');
-      return;
-    }
+    if (!form.name.trim()) { setError('School name is required.'); return; }
     if (splitTotal !== 0 && splitTotal !== 100) {
       setError('Vehicle type split percentages should add up to 100%.');
       return;
@@ -61,6 +98,8 @@ export default function SchoolDispersal() {
         currentDispersalTime: form.currentDispersalTime,
         distanceMeters: Number(form.distanceMeters) || 0,
         population: Number(form.population) || 0,
+        lat: pickedLocation?.lat ?? null,
+        lng: pickedLocation?.lng ?? null,
         vehicleSplit: {
           privateCarPercent: Number(form.privateCarPercent) || 0,
           autoPercent: Number(form.autoPercent) || 0,
@@ -69,6 +108,8 @@ export default function SchoolDispersal() {
         },
       });
       setForm(initialForm);
+      setPickedLocation(null);
+      setShowMapPicker(false);
     } catch {
       setError('Could not save school. Please try again.');
     } finally {
@@ -84,6 +125,18 @@ export default function SchoolDispersal() {
     });
   };
 
+  const startEdit = (school) => {
+    setEditingId(school.id);
+    setEditingTime(school.currentDispersalTime);
+  };
+
+  const saveEdit = async (id) => {
+    await updateSchool(id, { currentDispersalTime: editingTime });
+    setEditingId(null);
+  };
+
+  const schoolsWithLocation = schools.filter((s) => s.lat && s.lng);
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
       <div>
@@ -93,36 +146,93 @@ export default function SchoolDispersal() {
         </p>
       </div>
 
+      {/* Add School Form */}
       {isObserver && (
         <div className="bg-white rounded-lg border border-gray-200 p-5">
           <h2 className="font-semibold text-arf-navy mb-4">Add a School</h2>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <Field label="School name">
-              <input className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40 focus:border-arf-navy" value={form.name} onChange={handleChange('name')} required />
-            </Field>
-            <Field label="Current dispersal time">
-              <input type="time" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40 focus:border-arf-navy" value={form.currentDispersalTime} onChange={handleChange('currentDispersalTime')} required />
-            </Field>
-            <Field label="Approx. distance from junction (m)">
-              <input type="number" min="0" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40 focus:border-arf-navy" value={form.distanceMeters} onChange={handleChange('distanceMeters')} required />
-            </Field>
-            <Field label="Estimated student population">
-              <input type="number" min="0" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40 focus:border-arf-navy" value={form.population} onChange={handleChange('population')} required />
-            </Field>
-            <Field label="Private cars (%)">
-              <input type="number" min="0" max="100" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40 focus:border-arf-navy" value={form.privateCarPercent} onChange={handleChange('privateCarPercent')} />
-            </Field>
-            <Field label="Autos (%)">
-              <input type="number" min="0" max="100" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40 focus:border-arf-navy" value={form.autoPercent} onChange={handleChange('autoPercent')} />
-            </Field>
-            <Field label="School buses (%)">
-              <input type="number" min="0" max="100" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40 focus:border-arf-navy" value={form.busPercent} onChange={handleChange('busPercent')} />
-            </Field>
-            <Field label="Walkers (%)">
-              <input type="number" min="0" max="100" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40 focus:border-arf-navy" value={form.walkerPercent} onChange={handleChange('walkerPercent')} />
-            </Field>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <Field label="School name">
+                <input className={inputCls} value={form.name} onChange={handleChange('name')} required />
+              </Field>
+              <Field label="Current dispersal time">
+                <input type="time" className={inputCls} value={form.currentDispersalTime} onChange={handleChange('currentDispersalTime')} required />
+              </Field>
+              <Field label="Approx. distance from junction (m)">
+                <input type="number" min="0" className={inputCls} value={form.distanceMeters} onChange={handleChange('distanceMeters')} required />
+              </Field>
+              <Field label="Estimated student population">
+                <input type="number" min="0" className={inputCls} value={form.population} onChange={handleChange('population')} required />
+              </Field>
+              <Field label="Private cars (%)">
+                <input type="number" min="0" max="100" className={inputCls} value={form.privateCarPercent} onChange={handleChange('privateCarPercent')} />
+              </Field>
+              <Field label="Autos (%)">
+                <input type="number" min="0" max="100" className={inputCls} value={form.autoPercent} onChange={handleChange('autoPercent')} />
+              </Field>
+              <Field label="School buses (%)">
+                <input type="number" min="0" max="100" className={inputCls} value={form.busPercent} onChange={handleChange('busPercent')} />
+              </Field>
+              <Field label="Walkers (%)">
+                <input type="number" min="0" max="100" className={inputCls} value={form.walkerPercent} onChange={handleChange('walkerPercent')} />
+              </Field>
+            </div>
 
-            <div className="lg:col-span-3 flex items-center gap-3">
+            {/* Map Location Picker */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-arf-text">
+                  School location on map{' '}
+                  <span className="text-gray-400 font-normal">(optional)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowMapPicker((v) => !v)}
+                  className="text-xs font-medium text-arf-navy border border-arf-navy/30 rounded px-3 py-1 hover:bg-arf-navy/10 transition"
+                >
+                  {showMapPicker ? 'Hide map' : pickedLocation ? '📍 Change location' : '📍 Pick on map'}
+                </button>
+              </div>
+
+              {pickedLocation && !showMapPicker && (
+                <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-1.5">
+                  ✅ Location set: {pickedLocation.lat.toFixed(5)}, {pickedLocation.lng.toFixed(5)}
+                  <button type="button" onClick={() => setPickedLocation(null)} className="ml-2 text-arf-red hover:underline">Remove</button>
+                </p>
+              )}
+
+              {showMapPicker && (
+                <div className="rounded-lg overflow-hidden border border-gray-300">
+                  <p className="text-xs text-gray-500 bg-gray-50 px-3 py-2 border-b border-gray-200">
+                    Click anywhere on the map to drop a pin at the school's location
+                  </p>
+                  <MapContainer
+                    center={BAREILLY_CENTER}
+                    zoom={13}
+                    style={{ height: '300px', width: '100%' }}
+                    scrollWheelZoom={false}
+                  >
+                    <TileLayer
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    />
+                    <LocationPicker onPick={(latlng) => setPickedLocation(latlng)} />
+                    {pickedLocation && (
+                      <Marker position={pickedLocation} icon={pickerIcon}>
+                        <Popup>{form.name || 'New school'}</Popup>
+                      </Marker>
+                    )}
+                  </MapContainer>
+                  {pickedLocation && (
+                    <p className="text-xs text-emerald-700 bg-emerald-50 px-3 py-2 border-t border-gray-200">
+                      ✅ Pin placed at {pickedLocation.lat.toFixed(5)}, {pickedLocation.lng.toFixed(5)} — you can click again to move it
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
               <button
                 type="submit"
                 disabled={submitting}
@@ -136,6 +246,40 @@ export default function SchoolDispersal() {
         </div>
       )}
 
+      {/* Schools on Map */}
+      {schoolsWithLocation.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100">
+            <h2 className="font-semibold text-arf-navy">Schools on Map</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Showing {schoolsWithLocation.length} school{schoolsWithLocation.length > 1 ? 's' : ''} with a pinned location</p>
+          </div>
+          <MapContainer
+            center={BAREILLY_CENTER}
+            zoom={13}
+            style={{ height: '300px', width: '100%' }}
+            scrollWheelZoom={false}
+          >
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            />
+            {schoolsWithLocation.map((s) => (
+              <Marker key={s.id} position={[s.lat, s.lng]} icon={schoolIcon}>
+                <Popup>
+                  <div className="text-sm">
+                    <p className="font-semibold">{s.name}</p>
+                    <p className="text-gray-500">Dispersal: {s.currentDispersalTime}</p>
+                    <p className="text-gray-500">Population: {s.population}</p>
+                    <p className="text-gray-500">Distance: {s.distanceMeters}m</p>
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+        </div>
+      )}
+
+      {/* Schedule Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="font-semibold text-arf-navy">Recommended Staggered Schedule</h2>
@@ -168,7 +312,7 @@ export default function SchoolDispersal() {
                   <th className="px-4 py-3 font-semibold">Current Dispersal</th>
                   <th className="px-4 py-3 font-semibold">Proposed Dispersal</th>
                   <th className="px-4 py-3 font-semibold">Distance</th>
-                  <th className="px-4 py-3 font-semibold">Impact Score</th>
+                  <th className="px-4 py-3 font-semibold">Impact</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
                 </tr>
               </thead>
@@ -176,18 +320,47 @@ export default function SchoolDispersal() {
                 {optimized.map((s, i) => (
                   <tr key={s.id} className={i % 2 === 0 ? 'bg-white' : 'bg-arf-bg'}>
                     <td className="px-4 py-3 font-medium text-arf-text">{s.name}</td>
-                    <td className="px-4 py-3 text-gray-500">{s.currentDispersalTime}</td>
+                    <td className="px-4 py-3">
+                      {isObserver && editingId === s.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="time"
+                            className="rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40"
+                            value={editingTime}
+                            onChange={(e) => setEditingTime(e.target.value)}
+                          />
+                          <button
+                            onClick={() => saveEdit(s.id)}
+                            className="text-xs font-semibold text-white bg-arf-navy rounded px-2 py-1 hover:bg-arf-navy/90"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="text-xs text-gray-500 hover:text-arf-red"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-500">{s.currentDispersalTime}</span>
+                          {isObserver && (
+                            <button
+                              onClick={() => startEdit(s)}
+                              className="text-[11px] text-arf-navy border border-arf-navy/30 rounded px-1.5 py-0.5 hover:bg-arf-navy/10 transition"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-arf-text font-semibold">{s.proposedDispersal}</td>
                     <td className="px-4 py-3 text-gray-500">{s.distanceMeters}m</td>
+                    <td className="px-4 py-3"><ImpactBadge level={s.impact} /></td>
                     <td className="px-4 py-3">
-                      <ImpactBadge level={s.impact} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-xs font-semibold px-2 py-1 rounded ${
-                          s.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-                        }`}
-                      >
+                      <span className={`text-xs font-semibold px-2 py-1 rounded ${s.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
                         {s.status}
                       </span>
                     </td>
@@ -201,6 +374,8 @@ export default function SchoolDispersal() {
     </div>
   );
 }
+
+const inputCls = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40 focus:border-arf-navy';
 
 function Field({ label, children }) {
   return (

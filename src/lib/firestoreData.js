@@ -115,3 +115,7 @@ export async function addSchool(school) {
     createdAt: serverTimestamp(),
   });
 }
+
+export async function updateSchool(id, data) {
+  return updateDoc(doc(db, SCHOOLS_COL, id), data);
+}
