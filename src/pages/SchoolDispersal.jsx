@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
@@ -40,6 +40,15 @@ function LocationPicker({ onPick }) {
   return null;
 }
 
+// Flies map to a given position when it changes
+function FlyTo({ position }) {
+  const map = useMap();
+  useEffect(() => {
+    if (position) map.flyTo(position, 16, { duration: 1.2 });
+  }, [position, map]);
+  return null;
+}
+
 const initialForm = {
   name: '',
   currentDispersalTime: '13:00',
@@ -58,6 +67,8 @@ export default function SchoolDispersal() {
   const [form, setForm] = useState(initialForm);
   const [pickedLocation, setPickedLocation] = useState(null);
   const [showMapPicker, setShowMapPicker] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [locError, setLocError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -123,6 +134,28 @@ export default function SchoolDispersal() {
       date: format(new Date(), 'yyyy-MM-dd'),
       observerName: name,
     });
+  };
+
+  const useMyLocation = () => {
+    setLocError('');
+    if (!navigator.geolocation) {
+      setLocError('Geolocation is not supported by your browser.');
+      return;
+    }
+    setLocating(true);
+    setShowMapPicker(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setPickedLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocating(false);
+      },
+      (err) => {
+        setLocating(false);
+        if (err.code === 1) setLocError('Location access denied. Please allow location in your browser settings.');
+        else setLocError('Could not get your location. Try clicking on the map instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   const startEdit = (school) => {
@@ -194,14 +227,36 @@ export default function SchoolDispersal() {
                   School location on map{' '}
                   <span className="text-gray-400 font-normal">(optional)</span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setShowMapPicker((v) => !v)}
-                  className="text-xs font-medium text-arf-navy border border-arf-navy/30 rounded px-3 py-1 hover:bg-arf-navy/10 transition"
-                >
-                  {showMapPicker ? 'Hide map' : pickedLocation ? '📍 Change location' : '📍 Pick on map'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={useMyLocation}
+                    disabled={locating}
+                    className="text-xs font-medium text-white bg-arf-navy rounded px-3 py-1.5 hover:bg-arf-navy/90 transition disabled:opacity-60 flex items-center gap-1.5"
+                  >
+                    {locating ? (
+                      <>
+                        <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                        </svg>
+                        Locating…
+                      </>
+                    ) : '📡 Use My Location'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMapPicker((v) => !v)}
+                    className="text-xs font-medium text-arf-navy border border-arf-navy/30 rounded px-3 py-1.5 hover:bg-arf-navy/10 transition"
+                  >
+                    {showMapPicker ? 'Hide map' : pickedLocation ? '📍 Change on map' : '📍 Pick on map'}
+                  </button>
+                </div>
               </div>
+
+              {locError && (
+                <p className="text-xs text-arf-red bg-arf-red/10 border border-arf-red/20 rounded px-3 py-1.5 mb-2">{locError}</p>
+              )}
 
               {pickedLocation && !showMapPicker && (
                 <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-1.5">
@@ -213,7 +268,7 @@ export default function SchoolDispersal() {
               {showMapPicker && (
                 <div className="rounded-lg overflow-hidden border border-gray-300">
                   <p className="text-xs text-gray-500 bg-gray-50 px-3 py-2 border-b border-gray-200">
-                    Click anywhere on the map to drop a pin at the school's location
+                    📡 Hit "Use My Location" to auto-pin your current position, or click anywhere on the map to place the pin manually
                   </p>
                   <MapContainer
                     center={BAREILLY_CENTER}
@@ -226,6 +281,7 @@ export default function SchoolDispersal() {
                       attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                     />
                     <LocationPicker onPick={(latlng) => setPickedLocation(latlng)} />
+                    <FlyTo position={pickedLocation} />
                     {pickedLocation && (
                       <Marker position={pickedLocation} icon={pickerIcon}>
                         <Popup>{form.name || 'New school'}</Popup>
@@ -234,7 +290,7 @@ export default function SchoolDispersal() {
                   </MapContainer>
                   {pickedLocation && (
                     <p className="text-xs text-emerald-700 bg-emerald-50 px-3 py-2 border-t border-gray-200">
-                      ✅ Pin placed at {pickedLocation.lat.toFixed(5)}, {pickedLocation.lng.toFixed(5)} — you can click again to move it
+                      ✅ Pin at {pickedLocation.lat.toFixed(5)}, {pickedLocation.lng.toFixed(5)} — click map to move it
                     </p>
                   )}
                 </div>
