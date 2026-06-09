@@ -156,7 +156,16 @@ export default function SchoolDispersal() {
                 <input className={inputCls} value={form.name} onChange={handleChange('name')} required />
               </Field>
               <Field label="Current dispersal time">
-                <input type="time" className={inputCls} value={form.currentDispersalTime} onChange={handleChange('currentDispersalTime')} required />
+                <select className={inputCls} value={form.currentDispersalTime} onChange={handleChange('currentDispersalTime')} required>
+                  {Array.from({ length: 25 }, (_, i) => {
+                    const totalMinutes = 11 * 60 + i * 15; // 11:00 to 17:00 in 15-min steps
+                    const h = Math.floor(totalMinutes / 60);
+                    const m = totalMinutes % 60;
+                    const val = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                    const label = `${h > 12 ? h - 12 : h}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+                    return <option key={val} value={val}>{label}</option>;
+                  })}
+                </select>
               </Field>
               <Field label="Approx. distance from junction (m)">
                 <input type="number" min="0" className={inputCls} value={form.distanceMeters} onChange={handleChange('distanceMeters')} required />
@@ -323,12 +332,20 @@ export default function SchoolDispersal() {
                     <td className="px-4 py-3">
                       {isObserver && editingId === s.id ? (
                         <div className="flex items-center gap-2">
-                          <input
-                            type="time"
+                          <select
                             className="rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-arf-navy/40"
                             value={editingTime}
                             onChange={(e) => setEditingTime(e.target.value)}
-                          />
+                          >
+                            {Array.from({ length: 25 }, (_, i) => {
+                              const totalMinutes = 11 * 60 + i * 15;
+                              const h = Math.floor(totalMinutes / 60);
+                              const m = totalMinutes % 60;
+                              const val = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                              const label = `${h > 12 ? h - 12 : h}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+                              return <option key={val} value={val}>{label}</option>;
+                            })}
+                          </select>
                           <button
                             onClick={() => saveEdit(s.id)}
                             className="text-xs font-semibold text-white bg-arf-navy rounded px-2 py-1 hover:bg-arf-navy/90"
