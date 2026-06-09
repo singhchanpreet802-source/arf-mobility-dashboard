@@ -2,6 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { JUNCTION } from '../lib/baseline';
+
+const JUNCTIONS = [
+  { id: JUNCTION.id, name: 'Prem Nagar Chauraha' },
+  { id: 'civil-lines-chauraha', name: 'Civil Lines Chauraha' },
+  { id: 'kotwali-chauraha', name: 'Kotwali Chauraha' },
+  { id: 'nainital-road-chauraha', name: 'Nainital Road Chauraha' },
+  { id: 'rajendra-nagar-chauraha', name: 'Rajendra Nagar Chauraha' },
+  { id: 'rampur-garden-chauraha', name: 'Rampur Garden Chauraha' },
+  { id: 'subhash-nagar-chauraha', name: 'Subhash Nagar Chauraha' },
+  { id: 'ddpuram-chauraha', name: 'DD Puram Chauraha' },
+  { id: 'railway-station-chauraha', name: 'Railway Station Chauraha' },
+  { id: 'picnic-spot-chauraha', name: 'Picnic Spot Chauraha' },
+];
 import { calculateJCS, jcsStatus } from '../lib/jcs';
 import { addObservation, subscribeObservations } from '../lib/firestoreData';
 import { evaluateAlerts } from '../lib/alertRules';
@@ -85,15 +98,24 @@ function ToggleGroup({ value, onChange, options }) {
 }
 
 export default function DataEntry() {
-  const { name, isObserver } = useAuth();
+  const { name, user, isObserver } = useAuth();
   const [history, setHistory] = useState([]);
   const [form, setForm] = useState(initialState);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [selectedJunctionId, setSelectedJunctionId] = useState(JUNCTION.id);
+  const [now, setNow] = useState(new Date());
 
-  const today = format(new Date(), 'yyyy-MM-dd');
-  const nowTime = format(new Date(), 'HH:mm');
+  // Real-time clock — updates every second
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const today = format(now, 'yyyy-MM-dd');
+  const nowTime = format(now, 'HH:mm:ss');
+  const observerEmail = user?.email ?? '';
 
   useEffect(() => {
     const unsub = subscribeObservations(JUNCTION.id, setHistory);
@@ -180,10 +202,14 @@ export default function DataEntry() {
       constablePostsManned,
     });
 
+    const selectedJunction = JUNCTIONS.find((j) => j.id === selectedJunctionId) ?? JUNCTIONS[0];
     const observation = {
       date: today,
-      time: nowTime,
-      observerName: name,
+      time: format(now, 'HH:mm'),
+      observerName: name || observerEmail,
+      observerEmail,
+      junctionId: selectedJunction.id,
+      junctionName: selectedJunction.name,
 
       avgRedPhaseSec: cycleAvg ? Math.round(cycleAvg) : null,
       cycle1: Number(form.cycle1) || null,
@@ -269,21 +295,31 @@ export default function DataEntry() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <span className={labelCls}>Junction</span>
-              <select className={inputCls} disabled value={JUNCTION.id}>
-                <option value={JUNCTION.id}>{JUNCTION.name}</option>
+              <select
+                className={inputCls}
+                value={selectedJunctionId}
+                onChange={(e) => setSelectedJunctionId(e.target.value)}
+              >
+                {JUNCTIONS.map((j) => (
+                  <option key={j.id} value={j.id}>{j.name}</option>
+                ))}
               </select>
             </div>
             <div>
               <span className={labelCls}>Date</span>
-              <input className={inputCls} disabled value={today} />
+              <input className={`${inputCls} bg-gray-50 text-gray-500`} disabled value={today} />
             </div>
             <div>
-              <span className={labelCls}>Time</span>
-              <input className={inputCls} disabled value={nowTime} />
+              <span className={labelCls}>Time (live)</span>
+              <input className={`${inputCls} bg-gray-50 text-gray-500 font-mono`} disabled value={nowTime} />
             </div>
             <div>
               <span className={labelCls}>Observer name</span>
-              <input className={inputCls} disabled value={name} />
+              <input className={`${inputCls} bg-gray-50 text-gray-500`} disabled value={name || observerEmail} />
+            </div>
+            <div className="sm:col-span-2">
+              <span className={labelCls}>Observer email</span>
+              <input className={`${inputCls} bg-gray-50 text-gray-500`} disabled value={observerEmail} />
             </div>
           </div>
         </Section>
