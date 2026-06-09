@@ -206,7 +206,7 @@ export default function DataEntry() {
     const observation = {
       date: today,
       time: format(now, 'HH:mm'),
-      observerName: name || observerEmail,
+      observerName: form.observerName?.trim() || name || observerEmail,
       observerEmail,
       junctionId: selectedJunction.id,
       junctionName: selectedJunction.name,
@@ -315,7 +315,12 @@ export default function DataEntry() {
             </div>
             <div>
               <span className={labelCls}>Observer name</span>
-              <input className={`${inputCls} bg-gray-50 text-gray-500`} disabled value={name || observerEmail} />
+              <input
+                className={inputCls}
+                placeholder="Enter your full name"
+                value={form.observerName ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, observerName: e.target.value }))}
+              />
             </div>
             <div className="sm:col-span-2">
               <span className={labelCls}>Observer email</span>
